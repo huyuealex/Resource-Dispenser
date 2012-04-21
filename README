@@ -2,3 +2,7 @@ This is the README file for this project.
 
 Hello, world!
 Hello, world, too!
+
+iotest.c 说明:
+    使用格式:iotest [-f <file>] [-v <interval>]
+    该程序对文件<file>进行读测试(若未指定<file>,则尝试读取文件 iotest_source),若指定 -v <interval> ,则该程序大致每完成百分之<interval> 就输出一次进度(注意interval为整数)
