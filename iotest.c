@@ -1,12 +1,16 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <unistd.h>
 #include <fcntl.h>
 #include <sys/time.h>
 #include <time.h>
 
 #define BUF_SIZE 2048
+
+//assume
+#define PAGE_SIZE 4096
 
 int main(int argc, char *argv[])
 {
@@ -15,6 +19,13 @@ int main(int argc, char *argv[])
     unsigned intervalByte,nextCheckPoint;
     char *file=0,buf[BUF_SIZE];
     
+    //确保缓冲区的内存页面已经被分配
+    int i=0;
+    while(i<BUF_SIZE)
+    {
+        buf[i]=0;
+        i+=PAGE_SIZE;
+    }
 	while ((c = getopt(argc, argv, "f:v:h")) != EOF)
     {
         switch(c)
@@ -67,8 +78,9 @@ int main(int argc, char *argv[])
         buf[2]=buf[1026]=2;
     }
     gettimeofday(&eTime,NULL);
-    printf("finished\nRead Byte:%i\tRead times:%lims\n",
+    printf("finished\nRead Byte:%zi\tRead times:%lims\n",
             totalRead,
             (eTime.tv_sec-sTime.tv_sec)*1000+(eTime.tv_usec-sTime.tv_usec)/1000);
     close(fd);
+    return 0;
 }
