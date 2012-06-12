@@ -6,6 +6,7 @@
 #include <fcntl.h>
 #include <sys/time.h>
 #include <time.h>
+#include <unistd.h>
 
 #define BUF_SIZE 2048
 
@@ -14,7 +15,7 @@
 
 int main(int argc, char *argv[])
 {
-    int c,fd,intervalPercent=100;
+    int c,fd,intervalPercent=100,wait=0;
     struct timeval sTime,eTime;
     unsigned intervalByte,nextCheckPoint;
     char *file=0,buf[BUF_SIZE];
@@ -26,7 +27,7 @@ int main(int argc, char *argv[])
         buf[i]=0;
         i+=PAGE_SIZE;
     }
-	while ((c = getopt(argc, argv, "f:v:h")) != EOF)
+	while ((c = getopt(argc, argv, "f:v:hpw")) != EOF)
     {
         switch(c)
         {
@@ -36,12 +37,23 @@ int main(int argc, char *argv[])
             case 'v':
                 intervalPercent=strtol(optarg, NULL, 10);
                 break;
+			case 'p':
+				printf("pid:%i\n",getpid());
+				break;
+			case 'w':
+				wait=1;
+				break;
             case 'h':
             case '?':
-                printf("usage:\tiotest [-f <file>] [-v <interval>]\n");
+                printf("usage:\tiotest [-f <file>] [-v <interval>] [-p]\n");
                 return 0;
         }
     }
+	if(wait)
+	{
+		printf("press enter to continue");
+		getchar();
+	}
     if(file==0)
         file="iotest_source";
     fd=open(file,O_RDONLY);
