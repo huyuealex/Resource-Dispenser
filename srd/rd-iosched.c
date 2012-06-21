@@ -8,91 +8,47 @@
 #include <linux/init.h>
 #include <linux/proc_fs.h>
 
-static char procbuf[16];
-static pid_t rtpid=0;//貌似有特殊进程pid为0,但是这里只要为0就当作没初始化
-static const int rtnice=20;//表示多少次优先服务rtpid之后才服务一次其他进程
-static int rtcount=0;
-static int srprinttime=0,arprinttime=0,mrprinttime=0;
+static char proctest[16];
+static int whichqueue=0,whichqueueout=0;
 static struct proc_dir_entry *proc_entry;
-static unsigned long dontuntil=0;
 
 struct rd_data {
-	struct list_head queue;
-	struct list_head rtqueue;
+	struct list_head queue,queue2;
 };
 
 static void rd_merged_requests(struct request_queue *q, struct request *rq,
 				 struct request *next)
 {
 	list_del_init(&next->queuelist);
-	//if(rtpid&&printtime++<16)
-	//	printk(KERN_INFO "rd_merge_request pid:%i\n",current->pid);
-	if(rtpid&&mrprinttime<16&&rq->elevator_private==(void *)1)
-	{
-		++mrprinttime;
-		printk(KERN_INFO "rd_merged_request get it\n");
-	}
 }
 
-static int rd_dispatch_force(struct request_queue *q)
-{
-	struct rd_data *nd = q->elevator->elevator_data;
-	struct request *rq;
-	if(!list_empty(&nd->rtqueue))
-	{
-		rq = list_entry(nd->rtqueue.next, struct request, queuelist);
-		list_del_init(&rq->queuelist);
-		//elv_dispatch_sort(q, rq);
-		elv_dispatch_add_tail(q, rq);
-		return 1;
-	}
-	if (!list_empty(&nd->queue)) {
-		rq = list_entry(nd->queue.next, struct request, queuelist);
-		list_del_init(&rq->queuelist);
-		//elv_dispatch_sort(q, rq);
-		elv_dispatch_add_tail(q, rq);
-		return 1;
-	}
-	return 0;
-}
 static int rd_dispatch(struct request_queue *q, int force)
 {
 	struct rd_data *nd = q->elevator->elevator_data;
-	struct request *rq;
-	
-	if(!list_empty(&nd->rtqueue))
-	{
-		rq = list_entry(nd->rtqueue.next, struct request, queuelist);
-		list_del_init(&rq->queuelist);
-		//elv_dispatch_sort(q, rq);
-		elv_dispatch_add_tail(q, rq);
-		//++rtcount;
-		dontuntil=jiffies+HZ/200;//2ms后才允许普通任务进入队列
-		return 1;
-	}
-	if ((force||time_after(jiffies,dontuntil))&&!list_empty(&nd->queue)) {
+
+	whichqueueout=!whichqueueout;
+	if(whichqueueout)
+		if (!list_empty(&nd->queue2)) {
+			struct request *rq;
+			rq = list_entry(nd->queue2.next, struct request, queuelist);
+			list_del_init(&rq->queuelist);
+			elv_dispatch_sort(q, rq);
+			return 1;
+		}
+	if (!list_empty(&nd->queue)) {
+		struct request *rq;
 		rq = list_entry(nd->queue.next, struct request, queuelist);
 		list_del_init(&rq->queuelist);
-		//elv_dispatch_sort(q, rq);
-		elv_dispatch_add_tail(q, rq);
-		//rtcount=0;//每次服务完一次普通进程则重置rtcount
+		elv_dispatch_sort(q, rq);
 		return 1;
 	}
-	//if(!list_empty(&nd->rtqueue)&&rtcount<rtnice)
-	//{
-	//	rq = list_entry(nd->rtqueue.next, struct request, queuelist);
-	//	list_del_init(&rq->queuelist);
-	//	elv_dispatch_sort(q, rq);
-	//	++rtcount;
-	//	return 1;
-	//}
-	//if (!list_empty(&nd->queue)) {
-	//	rq = list_entry(nd->queue.next, struct request, queuelist);
-	//	list_del_init(&rq->queuelist);
-	//	elv_dispatch_sort(q, rq);
-	//	rtcount=0;//每次服务完一次普通进程则重置rtcount
-	//	return 1;
-	//}
+	if (!list_empty(&nd->queue2)) {
+		struct request *rq;
+		rq = list_entry(nd->queue2.next, struct request, queuelist);
+		list_del_init(&rq->queuelist);
+		elv_dispatch_sort(q, rq);
+		return 1;
+	}
 	return 0;
 }
 
@@ -100,22 +56,18 @@ static void rd_add_request(struct request_queue *q, struct request *rq)
 {
 	struct rd_data *nd = q->elevator->elevator_data;
 
-	if(rq->elevator_private==(void *)1)
-		list_add_tail(&rq->queuelist, &nd->rtqueue);
-	else
+	if(whichqueue)
 		list_add_tail(&rq->queuelist, &nd->queue);
-	//if(rtpid&&arprinttime<16&&rq->elevator_private==(void *)1)
-	//{
-	//	++arprinttime;
-	//	printk(KERN_INFO "rd_add_request get it\n");
-	//}
+	else
+		list_add_tail(&rq->queuelist, &nd->queue2);
+	whichqueue=!whichqueue;
 }
 
 static int rd_queue_empty(struct request_queue *q)
 {
 	struct rd_data *nd = q->elevator->elevator_data;
 
-	return list_empty(&nd->queue);
+	return list_empty(&nd->queue)&&list_empty(&nd->queue2);
 }
 
 static struct request *
@@ -123,7 +75,7 @@ rd_former_request(struct request_queue *q, struct request *rq)
 {
 	struct rd_data *nd = q->elevator->elevator_data;
 
-	if (rq->queuelist.prev == &nd->queue)
+	if (rq->queuelist.prev == &nd->queue||rq->queuelist.prev == &nd->queue2)
 		return NULL;
 	return list_entry(rq->queuelist.prev, struct request, queuelist);
 }
@@ -133,30 +85,11 @@ rd_latter_request(struct request_queue *q, struct request *rq)
 {
 	struct rd_data *nd = q->elevator->elevator_data;
 
-	if (rq->queuelist.next == &nd->queue)
+	if (rq->queuelist.next == &nd->queue||rq->queuelist.next == &nd->queue2)
 		return NULL;
 	return list_entry(rq->queuelist.next, struct request, queuelist);
 }
 
-static int rd_set_req(struct request_queue *q, struct request *rq, gfp_t gfp_mask)
-{
-	unsigned long flags;
-	might_sleep_if(gfp_mask & __GFP_WAIT);//这句用处不明,但扔这大概没有什么坏处
-	spin_lock_irqsave(q->queue_lock, flags);
-	if(rtpid&&current->pid==rtpid)
-	{
-		if(srprinttime<16)
-		{
-			++srprinttime;
-			printk(KERN_INFO "rd_set_req get it\n");
-		}
-		rq->elevator_private=(void *)1;
-	}
-	else
-		rq->elevator_private=(void *)0;
-	spin_unlock_irqrestore(q->queue_lock, flags);
-	return 0;
-}
 static void *rd_init_queue(struct request_queue *q)
 {
 	struct rd_data *nd;
@@ -165,7 +98,7 @@ static void *rd_init_queue(struct request_queue *q)
 	if (!nd)
 		return NULL;
 	INIT_LIST_HEAD(&nd->queue);
-	INIT_LIST_HEAD(&nd->rtqueue);
+	INIT_LIST_HEAD(&nd->queue2);
 	return nd;
 }
 
@@ -173,53 +106,34 @@ static void rd_exit_queue(struct elevator_queue *e)
 {
 	struct rd_data *nd = e->elevator_data;
 
-	BUG_ON(!list_empty(&nd->queue));
-	BUG_ON(!list_empty(&nd->rtqueue));
+	BUG_ON(!(list_empty(&nd->queue)&&list_empty(&nd->queue2)));
 	kfree(nd);
 }
 
 static struct elevator_type elevator_rd = {
 	.ops = {
-		.elevator_merge_req_fn		= rd_merged_requests,
-		.elevator_dispatch_fn		= rd_dispatch,
-		.elevator_add_req_fn		= rd_add_request,
-		.elevator_queue_empty_fn	= rd_queue_empty,
-		.elevator_former_req_fn		= rd_former_request,
-		.elevator_latter_req_fn		= rd_latter_request,
-		.elevator_init_fn		= rd_init_queue,
-		.elevator_exit_fn		= rd_exit_queue,
-
-		.elevator_set_req_fn	=rd_set_req,
+		.elevator_merge_req_fn		= rd_merged_requests,//
+		.elevator_dispatch_fn		= rd_dispatch,//
+		.elevator_add_req_fn		= rd_add_request,//
+		.elevator_queue_empty_fn	= rd_queue_empty,//
+		.elevator_former_req_fn		= rd_former_request,//
+		.elevator_latter_req_fn		= rd_latter_request,//
+		.elevator_init_fn		= rd_init_queue,//
+		.elevator_exit_fn		= rd_exit_queue,//
 	},
 	.elevator_name = "rd",
 	.elevator_owner = THIS_MODULE,
 };
-static int rdatoi(const char *s)
-{
-	int result=0;
-	while((*s)>='0'&&(*s)<='9')
-	{
-		result=result*10+((*s)&0x0f);
-		++s;
-	}
-	if(*s!=0)//非法字符
-		return 0;
-	return result;
-}
 static int rdnice_write( struct file *filp, const char __user *buff,
 	       	unsigned long len, void *data )
 {
-	if(len>sizeof(procbuf)-1)
-		return -EFBIG;
-	if (copy_from_user( procbuf, buff, len ))
+	//测试用
+	unsigned long len2=len;
+	if(len2>sizeof(proctest))
+		len2=sizeof(proctest);
+	if (copy_from_user( proctest, buff, len2 ))
 		return -EFAULT;
-	procbuf[len-1]=0;//无论用户传入串是否以0结尾,保证procbuf以0结尾
-	rtpid=rdatoi(procbuf);
-	arprinttime=0;
-	mrprinttime=0;
-	srprinttime=0;
-	rtcount=0;
-	printk(KERN_INFO "new rtpid=%i,jiffies=%lu\n",rtpid,jiffies);
+	proctest[len2-1]=0;
 	return len;
 }
 static int rdnice_read( char *page, char **start, off_t off,int count, int *eof, void *data )
@@ -231,7 +145,7 @@ static int rdnice_read( char *page, char **start, off_t off,int count, int *eof,
 		*eof = 1;
 		return 0;
 	}
-	len = sprintf(page, "%i\n", rtpid);
+	len = sprintf(page, "%s\n", proctest);
 	return len;
 }
 static int __init rd_init(void)
