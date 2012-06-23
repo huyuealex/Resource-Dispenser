@@ -13,10 +13,12 @@ static char vippidbuf[16];
 static struct proc_dir_entry *proc_entry;
 static pid_t vippid=0;//虽然貌似有特殊进程pid为0,但是本程序vippid==0时认为其无效
 static unsigned long dontuntil=0;//只有当jiffies>dontuntil后才能dispatch普通进程
+static unsigned vipcount=0,normalcount=0;
 
 struct rd_data {
 	struct request_queue *q;
 	struct list_head queue,vipqueue;
+	struct timer_list resume_timer;//用来重新唤醒io
 }*ndglobal;
 
 //FIXME
@@ -35,7 +37,9 @@ static int rd_dispatch(struct request_queue *q, int force)
 		rq = list_entry(nd->vipqueue.next, struct request, queuelist);
 		list_del_init(&rq->queuelist);
 		elv_dispatch_sort(q, rq);
-		dontuntil=jiffies+(unsigned long)(HZ*0.02);//20ms后才能dispatch普通进程的请求
+		++vipcount;
+		dontuntil=jiffies+msecs_to_jiffies(20);//20ms后才能dispatch普通进程的请求
+		mod_timer(&nd->resume_timer,jiffies+msecs_to_jiffies(30));//定时器在30ms后尝试重启io
 		return 1;
 	}
 	if ((force||time_after(jiffies,dontuntil))&&!list_empty(&nd->queue)) {
@@ -43,6 +47,7 @@ static int rd_dispatch(struct request_queue *q, int force)
 		rq = list_entry(nd->queue.next, struct request, queuelist);
 		list_del_init(&rq->queuelist);
 		elv_dispatch_sort(q, rq);
+		++normalcount;
 		return 1;
 	}
 	return 0;
@@ -83,7 +88,12 @@ rd_latter_request(struct request_queue *q, struct request *rq)
 		return NULL;
 	return list_entry(rq->queuelist.next, struct request, queuelist);
 }
-
+static void resume_timeout(unsigned long data)
+{
+	printk(KERN_INFO "0timeout,j=%lu,vipcount=%u,normalcount=%u\n",jiffies,vipcount,normalcount);
+	blk_run_queue((struct request_queue *)data);
+	printk(KERN_INFO "1timeout,j=%lu,vipcount=%u,normalcount=%u\n",jiffies,vipcount,normalcount);
+}
 static void *rd_init_queue(struct request_queue *q)
 {
 	struct rd_data *nd;
@@ -95,6 +105,9 @@ static void *rd_init_queue(struct request_queue *q)
 	INIT_LIST_HEAD(&nd->queue);
 	INIT_LIST_HEAD(&nd->vipqueue);
 	ndglobal=nd;
+	nd->resume_timer.function=resume_timeout;
+	nd->resume_timer.data=(unsigned long)q;
+	init_timer(&nd->resume_timer);
 	return nd;
 }
 
@@ -102,6 +115,7 @@ static void rd_exit_queue(struct elevator_queue *e)
 {
 	struct rd_data *nd = e->elevator_data;
 
+	del_timer_sync(&nd->resume_timer);
 	BUG_ON(!(list_empty(&nd->queue)&&list_empty(&nd->vipqueue)));
 	kfree(nd);
 }

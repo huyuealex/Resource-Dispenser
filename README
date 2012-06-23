@@ -3,6 +3,14 @@ This is the README file for this project.
 Hello, world!
 Hello, world, too!
 
+srd 说明:
+srd(simple rd)为一个仅支持一个高优先进程的调度器,其倾向于饿死其他进程.
+
+设置优先进程的pid为1234:	echo '1234'>/proc/rdnice
+查看当前设置的优先进程pid:	cat /proc/rdnice
+
 iotest.c 说明:
-    使用格式:iotest [-f <file>] [-v <interval>]
+    使用格式:iotest [-f <file>] [-v <interval>] [-w] [-p]
     该程序对文件<file>进行读测试(若未指定<file>,则尝试读取文件 iotest_source),若指定 -v <interval> ,则该程序大致每完成百分之<interval> 就输出一次进度(注意interval为整数)
+    -p 属性会在程序一开始时答应本进程的pid
+    -w 属性会使程序在一开始时等待回车继续
