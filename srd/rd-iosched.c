@@ -13,7 +13,7 @@ static char vippidbuf[16];
 static struct proc_dir_entry *proc_entry;
 static pid_t vippid=0;//虽然貌似有特殊进程pid为0,但是本程序vippid==0时认为其无效
 static unsigned long dontuntil=0;//只有当jiffies>dontuntil后才能dispatch普通进程
-static unsigned vipcount=0,normalcount=0;
+static unsigned vipcount=0,normalcount=0;//测试统计用
 
 struct rd_data {
 	struct request_queue *q;
