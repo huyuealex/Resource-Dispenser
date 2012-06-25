@@ -14,3 +14,19 @@ iotest.c 说明:
     该程序对文件<file>进行读测试(若未指定<file>,则尝试读取文件 iotest_source),若指定 -v <interval> ,则该程序大致每完成百分之<interval> 就输出一次进度(注意interval为整数)
     -p 属性会在程序一开始时答应本进程的pid
     -w 属性会使程序在一开始时等待回车继续
+
+nsrd 说明：
+	nsrd(not simple rd)为一个支持多优先级进程的调度器，目前实现方法倾向于饿死低优先级的进程
+	与/proc/rdnice的交互方法：(命令仍为 $ echo "***" > /proc/rdnice)
+		add pid prio	#将进程id为pid的进程优先级设置为prio
+		remove pid	#移除进程id为pid的优先级
+		clear		#清除所有进程的优先级
+	下一步：避免饿死低优先级进程
+
+new_iotest.c 说明：
+	使用格式：new_iotest (不用加任何参数)
+	注意：
+		1. 在同目录下需有测试读取的文件，文件名为file1.txt, file2.txt, ... , file12.txt共12个文件，大小为50M即可清楚看到结果
+		2. 程序中有运行shell命令，可能会有权限问题，运行前 $ sudo su一下最好，当然如果没有密码的话直接 $ sudo ./new_iotest也可
+	说明：在原来iotest基础上，改进为多进程，为测试nsrd量身打造，与/prio传输信息均在运行时自动进行，挂载nsrd后，把上面提到的12个文件放在同目录下，一运行此程序，效果清晰明显
+	下一步：把各进程打印的信息合并起来输出到一个文件，以便查看
