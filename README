@@ -4,10 +4,12 @@ Hello, world!
 Hello, world, too!
 
 srd 说明:
-srd(simple rd)为一个仅支持一个高优先进程的调度器,其倾向于饿死其他进程.
+srd(simple rd)为一个支持两种优先级的调度器,其倾向于饿死其他进程.
 
-设置优先进程的pid为1234:	echo '1234'>/proc/rdnice
-查看当前设置的优先进程pid:	cat /proc/rdnice
+添加高优先级进程的pid 1234:	echo 'a 1234'>/proc/rdnice
+删除高优先级进程的pid 1234:	echo 'd 1234'>/proc/rdnice
+删除全部的高优先即进程:		echo 'r'>/proc/rdnice
+查看所有的高优先级进程的pid:	cat /proc/rdnice
 
 iotest.c 说明:
     使用格式:iotest [-f <file>] [-v <interval>] [-w] [-p]
